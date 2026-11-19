@@ -3,6 +3,7 @@ import { renderRoom, roomSVG } from './render.js';
 import { projectPDF } from './pdf.js';
 import { projectDXF } from './dxf.js';
 import * as S from './store.js';
+import * as Scan from './scan.js';
 import { $, h, esc, num, sheet, closeSheet, ask, confirmBox, toast, shareFile, safeName, compressImage, svgToPng } from './ui.js';
 
 const app = $('#app');
@@ -60,8 +61,10 @@ async function homeView() {
   };
   $('[data-more]', el).onclick = () => {
     const s = sheet(`<h3>PlanPoche</h3><div class="stack">
+      <button class="btn ghost" data-key>Clé API Claude${Scan.getApiKey() ? ' (enregistrée)' : ''}</button>
       <label class="btn ghost file-btn">Importer une sauvegarde (.json)<input type="file" accept="application/json,.json" hidden></label>
       <p class="muted small">Vos plans sont enregistrés sur cet appareil. Pensez à exporter une sauvegarde de temps en temps depuis chaque projet.</p></div>`);
+    $('[data-key]', s).onclick = keySheet;
     $('input', s).onchange = async e => {
       const f = e.target.files[0]; if (!f) return;
       try {
@@ -73,6 +76,23 @@ async function homeView() {
       } catch { toast('Fichier non reconnu'); }
     };
   };
+}
+
+function keySheet() {
+  return new Promise(resolve => {
+    const cur = Scan.getApiKey();
+    const s = sheet(`<h3>Clé API Claude</h3><form class="stack">
+      <p class="muted small">Elle sert à analyser vos photos de pièces. Elle reste enregistrée sur cet appareil et n'est envoyée qu'à Anthropic. Créez-la sur console.anthropic.com, rubrique API Keys.</p>
+      <input name="k" type="password" autocomplete="off" placeholder="sk-ant-..." value="${esc(cur)}">
+      <div class="row"><button type="button" class="btn ghost" data-clear>${cur ? 'Effacer' : 'Annuler'}</button><button class="btn primary">Enregistrer</button></div></form>`, { onClose: () => resolve(Scan.getApiKey()) });
+    $('[data-clear]', s).onclick = () => { if (cur) { Scan.setApiKey(''); toast('Clé effacée'); } closeSheet(); resolve(''); };
+    $('form', s).onsubmit = e => {
+      e.preventDefault();
+      const k = e.target.k.value.trim();
+      if (!/^sk-ant-/.test(k)) return toast('La clé commence par sk-ant-');
+      Scan.setApiKey(k); closeSheet(); toast('Clé enregistrée'); resolve(k);
+    };
+  });
 }
 
 // ---------- Projet ----------
@@ -206,10 +226,11 @@ function roomView(project, room) {
 
   function renderDock() {
     if (!room.closed) {
-      dock.innerHTML = `<div class="tools">
+      dock.innerHTML = `<button class="btn primary scan-btn" data-scan>Photographier la pièce</button><div class="tools">
         <button class="tool" data-walk>Saisir les murs</button>
         <button class="tool" data-rect>Rectangle</button>
         <button class="tool primary" data-close ${room.points.length < 3 ? 'disabled' : ''}>Fermer la pièce</button></div>`;
+      $('[data-scan]', dock).onclick = scanSheet;
       $('[data-walk]', dock).onclick = walkSheet;
       $('[data-rect]', dock).onclick = rectSheet;
       $('[data-close]', dock).onclick = () => { snapshot(); room.closed = true; sel = null; commit(); fit(); render(); };
@@ -309,6 +330,64 @@ function roomView(project, room) {
     const width = Math.min(type === 'door' ? 83 : 120, L * 0.8);
     const o = { id: S.uid(), type, wall: i, width, offset: Math.max(0, (L - width) / 2), height: type === 'door' ? 204 : 115 };
     snapshot(); room.openings.push(o); sel = { kind: 'opening', id: o.id }; commit();
+  }
+
+  const shots = []; // photos choisies pour l'analyse (fichiers)
+  function scanSheet() {
+    const draw = () => {
+      const urls = shots.map(f => URL.createObjectURL(f));
+      const s = sheet(`<h3>Photographier la pièce</h3><form class="stack">
+        <p class="muted small">Placez-vous dans un coin et prenez 4 à 8 photos qui montrent tous les murs, du sol au plafond, avec chaque coin visible au moins une fois. Pour plus de précision, posez une feuille A4 contre un mur.</p>
+        <div class="photos">${urls.map((u, i) => `<div class="photo"><img src="${u}" alt=""><button type="button" data-rm="${i}" aria-label="Retirer">×</button></div>`).join('')}
+          <label class="photo add">+ Photo<input type="file" accept="image/*" multiple hidden></label></div>
+        <label class="field"><span>Hauteur sous plafond (m), si vous la connaissez</span><input name="h" inputmode="decimal" value="${G.fmtNum(room.height / 100)}"></label>
+        <label class="field"><span>Une cote mesurée (facultatif)</span><input name="known" placeholder="Ex. : mur de la fenêtre 3,40 m"></label>
+        <p class="muted small">Analyse par Claude avec votre clé API (environ 10 à 30 centimes par pièce). Précision indicative : 10 à 20 cm par mur, à vérifier au mètre pour un usage sur mesure.</p>
+        <div class="row"><button type="button" class="btn ghost" data-cancel>Annuler</button><button class="btn primary" ${shots.length ? '' : 'disabled'}>Analyser ${shots.length ? `(${shots.length})` : ''}</button></div></form>`,
+        { onClose: () => urls.forEach(u => URL.revokeObjectURL(u)) });
+      $('input[type=file]', s).onchange = e => { shots.push(...[...e.target.files].slice(0, 12 - shots.length)); urls.forEach(u => URL.revokeObjectURL(u)); draw(); };
+      s.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { shots.splice(+b.dataset.rm, 1); urls.forEach(u => URL.revokeObjectURL(u)); draw(); });
+      $('[data-cancel]', s).onclick = closeSheet;
+      $('form', s).onsubmit = async e => {
+        e.preventDefault();
+        const hm = num(e.target.h.value), known = e.target.known.value.trim();
+        let key = Scan.getApiKey();
+        if (!key) { key = await keySheet(); if (!key) return; }
+        runScan({ ceilingCm: hm > 0 ? Math.round(hm * 100) : null, known, key });
+      };
+    };
+    draw();
+  }
+
+  async function runScan({ ceilingCm, known, key }) {
+    const s = sheet(`<h3>Analyse en cours</h3><div class="stack"><div class="spinner" aria-hidden="true"></div>
+      <p class="muted center">Claude reconstruit le plan à partir de vos ${shots.length} photos. Comptez 30 secondes à 2 minutes ; gardez l'app ouverte.</p></div>`);
+    void s;
+    try {
+      const imagesB64 = await Promise.all(shots.map(f => Scan.toJpegBase64(f)));
+      const { data } = await Scan.analyzeRoom({ apiKey: key, imagesB64, ceilingCm, knownDimension: known, roomName: room.name });
+      const r = Scan.resultToRoom(data, S.uid);
+      snapshot();
+      room.points = r.points; room.openings = r.openings; room.closed = true;
+      if (ceilingCm) room.height = ceilingCm; else if (r.height) room.height = r.height;
+      for (const f of shots.slice(0, 6)) { try { room.photos.push(await compressImage(f, 1024, 0.7)); } catch { /* photo ignorée */ } }
+      const stamp = new Date().toLocaleDateString('fr-FR');
+      room.notes = [room.notes, `Relevé photo du ${stamp} (confiance ${r.confidence}) : ${r.remarks}`].filter(Boolean).join('\n');
+      shots.length = 0; sel = null;
+      commit(); fit(); render();
+      const st = G.roomStats(room);
+      const res = sheet(`<h3>Plan obtenu : ${G.fmtNum(st.floor)} m²</h3><div class="stack">
+        <p><strong>Confiance ${esc(r.confidence)}.</strong> ${esc(r.remarks)}</p>
+        <p class="muted small">Touchez un mur pour corriger sa cote si vous la mesurez. Les photos et ces remarques sont enregistrées dans les infos de la pièce.</p>
+        <button class="btn primary" data-ok>Voir le plan</button></div>`);
+      $('[data-ok]', res).onclick = closeSheet;
+    } catch (err) {
+      const msg = Scan.friendlyError(err);
+      const es = sheet(`<h3>L'analyse n'a pas abouti</h3><div class="stack"><p>${esc(msg)}</p>
+        <div class="row"><button class="btn ghost" data-close>Fermer</button><button class="btn primary" data-retry>Revoir les photos</button></div></div>`);
+      $('[data-close]', es).onclick = closeSheet;
+      $('[data-retry]', es).onclick = scanSheet;
+    }
   }
 
   function walkSheet() {

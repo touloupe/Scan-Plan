@@ -1,7 +1,7 @@
 // Cache de l'application pour un fonctionnement hors ligne.
-const CACHE = 'planpoche-v1';
+const CACHE = 'planpoche-v2';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'src/style.css', 'src/app.js', 'src/geometry.js', 'src/render.js',
-  'src/pdf.js', 'src/dxf.js', 'src/store.js', 'src/ui.js', 'icons/icon.svg', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png'];
+  'src/pdf.js', 'src/dxf.js', 'src/store.js', 'src/ui.js', 'src/scan.js', 'src/vendor/anthropic-sdk-1.4.0.mjs', 'icons/icon.svg', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))));

@@ -12,6 +12,14 @@ Application originale, construite uniquement avec des technologies web standard.
 
 Les projets sont enregistrés sur l'appareil (IndexedDB). Exportez une sauvegarde `.json` depuis le menu d'un projet pour les conserver ailleurs.
 
+## Relevé par photos
+
+Dans une pièce vide de plan, « Photographier la pièce » : prenez 4 à 8 photos couvrant tous les murs et leurs coins (idéalement avec une feuille A4 contre un mur), indiquez la hauteur sous plafond ou une cote mesurée si vous l'avez. Claude analyse les photos et produit le plan coté avec portes et fenêtres, que l'on peut ensuite corriger.
+
+- Nécessite une clé API Anthropic, saisie une fois dans les réglages (menu « … » de l'accueil). Elle reste enregistrée sur l'appareil et n'est envoyée qu'à l'API Anthropic.
+- Précision indicative : 10 à 20 cm par mur. Vérifier au mètre pour un usage sur mesure.
+- Coût indicatif : 10 à 30 centimes par pièce.
+
 ## Fonctions (V1)
 
 - Projets contenant plusieurs pièces, total des surfaces.
