@@ -33,3 +33,7 @@ Les projets sont enregistrés sur l'appareil (IndexedDB). Exportez une sauvegard
 Aucun outil de build : servir le dossier avec n'importe quel serveur statique, par exemple `python3 -m http.server`, puis ouvrir `http://localhost:8000`.
 
 Code dans `src/` : `geometry.js` (calculs), `render.js` (dessin SVG), `pdf.js` et `dxf.js` (exports), `store.js` (stockage), `ui.js` (composants), `app.js` (écrans).
+
+## Licence
+
+Tous droits réservés. Voir [LICENSE](LICENSE).
